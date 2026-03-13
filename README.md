@@ -2,7 +2,7 @@
 #### Nathalie Abello, Akshitha Bhashetty, Eftyghia Kourtelidis
 
 ## Introduction
-March Madness is the tournament of upsets, where underdogs come out on top more often than in other tournaments. Just last year, over 21.1 million viewers watched the final game [1], and an estimated $3.7 billion was wagered in bets on the men's and women's tournaments combined [2]. This unpredictability definitely engages big crowds, but this also makes it extremely difficult to predict the outcomes of games. We aim to predict not just who will win the game, but by how much, through three machine learning approaches: a time series model, a multi-layer perceptron, and a Bayesian model. 
+March Madness is the tournament of upsets, where underdogs come out on top more often than in other tournaments. Just last year, over 21.1 million viewers watched the final game [1], and an estimated $3.7 billion was wagered in bets on the men's and women's tournaments combined [2]. This unpredictability definitely engages big crowds, but this also makes it extremely difficult to predict the outcomes of games. We aim to predict not just who will win the game, but by how many points, through three machine learning approaches: a time series model, a multi-layer perceptron, and a Bayesian model. 
 
 ## Datasets
 1. [Main Dataset](https://www.kaggle.com/datasets/nishaanamin/march-madness-data/data)
