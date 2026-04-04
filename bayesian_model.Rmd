@@ -18,4 +18,45 @@ regular <- read.csv("Dataset/MRegularSeasonCompactResults.csv")
 tourney <- read.csv("Dataset/MNCAATourneyCompactResults.csv")
 seeds <- read.csv("Dataset/MNCAATourneySeeds.csv")
 point_diff <- read.csv("Dataset/Tournament Game Point Differentials.csv")
+head(teams)
+head(regular)
+head(tourney)
+head(seeds)
+head(point_diff)
 ```
+
+```{r}
+# compute team strength metrics
+# score differential for each game
+regular$ScoreDiff <- regular$WScore - regular$LScore
+
+# create dataframe for winners
+wins <- regular %>%
+  group_by(WTeamID) %>%
+  summarise(
+    Wins = n(),
+    AvgScoreDiff_W = mean(ScoreDiff),
+    AvgPointsFor = mean(WScore)
+  )
+
+# create dataframe for losses
+losses <- regular %>%
+  group_by(LTeamID) %>%
+  summarise(
+    Losses = n(),
+    AvgScoreDiff_L = mean(-ScoreDiff),
+    AvgPointsAgainst = mean(LScore)
+  )
+
+# combine wins and losses
+team_stats <- full_join(wins, losses, by = c("WTeamID" = "LTeamID"))
+
+team_stats <- team_stats %>%
+  mutate(
+    Games = Wins + Losses,
+    WinPct = Wins / Games,
+    AvgScoreDiff = (AvgScoreDiff_W + AvgScoreDiff_L) / 2
+  )
+```
+
+
