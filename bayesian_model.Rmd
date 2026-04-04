@@ -1,1 +1,21 @@
+---
+title: "Bayesian Model for March Madness Score Differential Prediction"
+author: "Eftyghia Kourtelidis"
+date: "2026-04-04"
+output: html_document
+---
 
+```{r}
+# load libraries
+library(brms)
+library(tidyverse)
+```
+
+``` {r}
+# load data
+teams <- read.csv("Dataset/MTeams.csv")
+regular <- read.csv("Dataset/MRegularSeasonCompactResults.csv")
+tourney <- read.csv("Dataset/MNCAATourneyCompactResults.csv")
+seeds <- read.csv("Dataset/MNCAATourneySeeds.csv")
+point_diff <- read.csv("Dataset/Tournament Game Point Differentials.csv")
+```
