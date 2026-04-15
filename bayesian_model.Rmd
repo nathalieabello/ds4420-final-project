@@ -2,7 +2,7 @@
 title: "Bayesian Model for March Madness Score Differential Prediction"
 author: "Eftyghia Kourtelidis"
 date: "2026-04-04"
-output: html_document
+output: pdf_document
 ---
 
 ```{r}
@@ -18,6 +18,15 @@ regular <- read.csv("Dataset/MRegularSeasonCompactResults.csv")
 tourney <- read.csv("Dataset/MNCAATourneyCompactResults.csv")
 seeds <- read.csv("Dataset/MNCAATourneySeeds.csv")
 point_diff <- read.csv("Dataset/Tournament Game Point Differentials.csv")
+
+# ensure IDs are numeric (important for joins)
+regular$WTeamID <- as.numeric(regular$WTeamID)
+regular$LTeamID <- as.numeric(regular$LTeamID)
+point_diff$TEAM1_ID <- as.numeric(point_diff$TEAM1_ID)
+point_diff$TEAM2_ID <- as.numeric(point_diff$TEAM2_ID)
+seeds$TeamID <- as.numeric(seeds$TeamID)
+
+
 head(teams)
 head(regular)
 head(tourney)
@@ -26,37 +35,345 @@ head(point_diff)
 ```
 
 ```{r}
-# compute team strength metrics
-# score differential for each game
-regular$ScoreDiff <- regular$WScore - regular$LScore
+# build team statistics
+# Score differential
+regular <- regular %>%
+  mutate(ScoreDiff = WScore - LScore)
 
-# create dataframe for winners
-wins <- regular %>%
-  group_by(WTeamID) %>%
+team_stats <- bind_rows(
+
+  # Wins
+  regular %>%
+    group_by(Season, TeamID = WTeamID) %>%
+    summarise(
+      Games = n(),
+      Wins = n(),
+      PointsFor = mean(WScore),
+      PointsAgainst = mean(LScore),
+      ScoreDiff = mean(ScoreDiff),
+      .groups = "drop"
+    ),
+
+  # Losses
+  regular %>%
+    group_by(Season, TeamID = LTeamID) %>%
+    summarise(
+      Games = n(),
+      Losses = n(),
+      PointsFor = mean(LScore),
+      PointsAgainst = mean(WScore),
+      ScoreDiff = mean(-ScoreDiff),
+      .groups = "drop"
+    )
+
+) %>%
+  group_by(Season, TeamID) %>%
   summarise(
-    Wins = n(),
-    AvgScoreDiff_W = mean(ScoreDiff),
-    AvgPointsFor = mean(WScore)
-  )
-
-# create dataframe for losses
-losses <- regular %>%
-  group_by(LTeamID) %>%
-  summarise(
-    Losses = n(),
-    AvgScoreDiff_L = mean(-ScoreDiff),
-    AvgPointsAgainst = mean(LScore)
-  )
-
-# combine wins and losses
-team_stats <- full_join(wins, losses, by = c("WTeamID" = "LTeamID"))
-
-team_stats <- team_stats %>%
+    Games = sum(Games),
+    Wins = sum(Wins, na.rm = TRUE),
+    Losses = sum(Losses, na.rm = TRUE),
+    PointsFor = mean(PointsFor),
+    PointsAgainst = mean(PointsAgainst),
+    ScoreDiff = mean(ScoreDiff),
+    .groups = "drop"
+  ) %>%
   mutate(
-    Games = Wins + Losses,
     WinPct = Wins / Games,
-    AvgScoreDiff = (AvgScoreDiff_W + AvgScoreDiff_L) / 2
+    OffStrength = PointsFor,
+    DefStrength = PointsAgainst
   )
 ```
 
+```{r}
+# build tournament dataset
+games <- tourney %>%
+  mutate(
+    POINT_DIFFERENTIAL = WScore - LScore,
+    TEAM1_ID = WTeamID,
+    TEAM2_ID = LTeamID,
+    YEAR = Season
+  )
 
+# randomize team order
+set.seed(1)
+
+games <- games %>%
+  mutate(random_flip = sample(c(TRUE, FALSE), n(), replace = TRUE)) %>%
+  mutate(
+    T1 = TEAM1_ID,
+    T2 = TEAM2_ID,
+    PD = POINT_DIFFERENTIAL
+  ) %>%
+  mutate(
+    TEAM1_ID = ifelse(random_flip, T2, T1),
+    TEAM2_ID = ifelse(random_flip, T1, T2),
+    POINT_DIFFERENTIAL = ifelse(random_flip, -PD, PD)
+  ) %>%
+  select(-T1, -T2, -PD, -random_flip)
+```
+
+```{r}
+# merge stats
+games <- games %>%
+  left_join(team_stats,
+            by = c("TEAM1_ID" = "TeamID", "YEAR" = "Season")) %>%
+  rename(
+    WinPct_T1 = WinPct,
+    ScoreDiff_T1 = ScoreDiff,
+    OffStrength_T1 = OffStrength,
+    DefStrength_T1 = DefStrength
+  ) %>%
+
+  left_join(team_stats,
+            by = c("TEAM2_ID" = "TeamID", "YEAR" = "Season")) %>%
+  rename(
+    WinPct_T2 = WinPct,
+    ScoreDiff_T2 = ScoreDiff,
+    OffStrength_T2 = OffStrength,
+    DefStrength_T2 = DefStrength
+  )
+```
+
+```{r}
+# seeds
+seeds$SeedNum <- as.numeric(substr(seeds$Seed, 2, 3))
+
+games <- games %>%
+  left_join(seeds,
+            by = c("TEAM1_ID" = "TeamID", "YEAR" = "Season")) %>%
+  rename(Seed_T1 = SeedNum) %>%
+  left_join(seeds,
+            by = c("TEAM2_ID" = "TeamID", "YEAR" = "Season")) %>%
+  rename(Seed_T2 = SeedNum)
+```
+
+```{r}
+# feature engineering
+games <- games %>%
+  mutate(
+    # Handle small NA cases safely
+    OffStrength_T1 = ifelse(is.na(OffStrength_T1), median(OffStrength_T1, na.rm = TRUE), OffStrength_T1),
+    OffStrength_T2 = ifelse(is.na(OffStrength_T2), median(OffStrength_T2, na.rm = TRUE), OffStrength_T2),
+    DefStrength_T1 = ifelse(is.na(DefStrength_T1), median(DefStrength_T1, na.rm = TRUE), DefStrength_T1),
+    DefStrength_T2 = ifelse(is.na(DefStrength_T2), median(DefStrength_T2, na.rm = TRUE), DefStrength_T2),
+
+    # Core features
+    SeedDiff = Seed_T1 - Seed_T2,
+    WinPctDiff = WinPct_T1 - WinPct_T2,
+    ScoreDiffDiff = ScoreDiff_T1 - ScoreDiff_T2,
+    OffDiff = OffStrength_T1 - OffStrength_T2,
+    DefDiff = DefStrength_T1 - DefStrength_T2,
+
+    # Interaction
+    Seed_Win_Interaction = SeedDiff * WinPctDiff,
+
+    # Round factor (important)
+    Round = as.factor(DayNum)
+  )
+```
+
+```{r}
+# clean dataset
+games_clean <- games %>%
+  filter(
+    !is.na(POINT_DIFFERENTIAL),
+    !is.na(WinPct_T1),
+    !is.na(WinPct_T2),
+    !is.na(Seed_T1),
+    !is.na(Seed_T2)
+  ) %>%
+  mutate(
+    SeedDiff = as.numeric(scale(SeedDiff)),
+    WinPctDiff = as.numeric(scale(WinPctDiff)),
+    ScoreDiffDiff = as.numeric(scale(ScoreDiffDiff)),
+    OffDiff = as.numeric(scale(OffDiff)),
+    DefDiff = as.numeric(scale(DefDiff))
+  )
+```
+
+```{r}
+# train test split
+set.seed(1)
+
+train <- games_clean %>% filter(YEAR >= 2018 & YEAR <= 2022)
+test <- games_clean %>% filter(YEAR >= 2023 & YEAR <= 2025)
+```
+
+```{r}
+nrow(games_clean)
+```
+
+### Bayesian Model
+```{r}
+model <- brm(
+  POINT_DIFFERENTIAL ~ 
+    SeedDiff + 
+    WinPctDiff + 
+    ScoreDiffDiff + 
+    OffDiff + 
+    DefDiff + 
+    SeedDiff:WinPctDiff +
+    Round +
+    (1 | TEAM1_ID) + 
+    (1 | TEAM2_ID),
+  data = train,
+  family = gaussian(),
+  prior = c(
+    brms::prior(normal(0, 1), class = "b"),
+    brms::prior(normal(0, 5), class = "Intercept"),
+    brms::prior(exponential(1), class = "sigma")
+  ),
+  chains = 4,
+  iter = 4000,
+  control = list(adapt_delta = 0.99)
+)
+```
+
+```{r}
+# evaluation
+pred <- predict(model, newdata = test, allow_new_levels = TRUE)
+
+test$PredictedDiff <- pred[,1]
+
+accuracy <- mean(
+  (test$PredictedDiff > 0) ==
+  (test$POINT_DIFFERENTIAL > 0)
+)
+
+rmse <- sqrt(mean((test$POINT_DIFFERENTIAL - test$PredictedDiff)^2))
+
+accuracy
+rmse
+
+mae <- mean(abs(test$POINT_DIFFERENTIAL - test$PredictedDiff))
+mae
+```
+```{r}
+# evaluation
+pred <- predict(model, newdata = train, allow_new_levels = TRUE)
+
+train$PredictedDiff <- pred[,1]
+
+accuracy <- mean(
+  (train$PredictedDiff > 0) ==
+  (train$POINT_DIFFERENTIAL > 0)
+)
+
+rmse <- sqrt(mean((train$POINT_DIFFERENTIAL - train$PredictedDiff)^2))
+
+accuracy
+rmse
+
+mae <- mean(abs(train$POINT_DIFFERENTIAL - train$PredictedDiff))
+mae
+```
+
+```{r}
+# mean predictions 
+pred <- predict(model, newdata = test, allow_new_levels = TRUE)
+test$PredictedDiff <- pred[,1]
+
+# posterior samples (uncertainty)
+post_preds <- posterior_predict(model, newdata = test, allow_new_levels = TRUE)
+
+# mean (should be very close to predict())
+test$PredictedMean <- colMeans(post_preds)
+
+# standard deviation = uncertainty per game
+test$PredictedSD <- apply(post_preds, 2, sd)
+
+# accuracy (winner prediction)
+accuracy <- mean(
+  (test$PredictedDiff > 0) ==
+  (test$POINT_DIFFERENTIAL > 0)
+)
+
+# RMSE
+rmse <- sqrt(mean((test$POINT_DIFFERENTIAL - test$PredictedDiff)^2))
+
+# MAE
+mae <- mean(abs(test$POINT_DIFFERENTIAL - test$PredictedDiff))
+
+#summarize uncertainty
+avg_uncertainty <- mean(test$PredictedSD)
+
+# print results
+accuracy
+rmse
+mae
+avg_uncertainty
+```
+```{r}
+# plots / tables
+pp_check(model)
+
+```
+
+```{r}
+summary(model)
+```
+
+```{r}
+plot(model)
+```
+
+```{r}
+library(tidybayes)
+library(ggplot2)
+
+# get posterior draws
+plot_data <- test %>%
+  add_predicted_draws(model, allow_new_levels = TRUE)
+
+# plot
+ggplot(plot_data, aes(x = POINT_DIFFERENTIAL, y = .prediction)) +
+  
+  # uncertainty bands
+  stat_lineribbon(.width = c(0.95, 0.80, 0.50), alpha = 0.4) +
+  
+  # actual data points
+  geom_point(data = test, aes(x = POINT_DIFFERENTIAL, y = PredictedMean), 
+             color = "darkgreen", alpha = 0.8) +
+  
+  # ideal line (perfect predictions)
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  
+  labs(
+    x = "Actual Point Differential",
+    y = "Predicted Point Differential",
+    title = "Predicted vs. Actual Point Differential with Posterior Uncertainty"
+  ) +
+  
+  theme_bw()
+
+ggsave("bayesian_predictions.png", width = 7, height = 5, dpi = 300)
+```
+
+```{r}
+library(dplyr)
+
+# build predictions dataframe
+bayesian_predictions <- test %>%
+  left_join(teams %>% select(TeamID, TeamName) %>% rename(TEAM1_NAME = TeamName),
+            by = c("TEAM1_ID" = "TeamID")) %>%
+  left_join(teams %>% select(TeamID, TeamName) %>% rename(TEAM2_NAME = TeamName),
+            by = c("TEAM2_ID" = "TeamID")) %>%
+  mutate(
+    SPLIT = "test",
+    PRED_MARGIN = PredictedMean,
+    ABS_ERROR = abs(POINT_DIFFERENTIAL - PredictedMean)
+  ) %>%
+  select(
+    YEAR,
+    CURRENT_ROUND = DayNum,
+    TEAM1 = TEAM1_NAME,
+    TEAM2 = TEAM2_NAME,
+    POINT_DIFFERENTIAL,
+    SPLIT,
+    PRED_MARGIN,
+    ABS_ERROR
+  )
+
+# write to predictions folder
+write.csv(bayesian_predictions, "Predictions/bayesian_predictions.csv", row.names = FALSE)
+```
