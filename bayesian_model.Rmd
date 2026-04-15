@@ -352,8 +352,34 @@ ggsave("bayesian_predictions.png", width = 7, height = 5, dpi = 300)
 ```{r}
 library(dplyr)
 
-# build predictions dataframe
-bayesian_predictions <- test %>%
+# get train predictions
+train_preds <- posterior_predict(model, newdata = train, allow_new_levels = TRUE)
+train$PredictedMean <- colMeans(train_preds)
+
+# build train predictions dataframe
+train_predictions <- train %>%
+  left_join(teams %>% select(TeamID, TeamName) %>% rename(TEAM1_NAME = TeamName),
+            by = c("TEAM1_ID" = "TeamID")) %>%
+  left_join(teams %>% select(TeamID, TeamName) %>% rename(TEAM2_NAME = TeamName),
+            by = c("TEAM2_ID" = "TeamID")) %>%
+  mutate(
+    SPLIT = "train",
+    PRED_MARGIN = PredictedMean,
+    ABS_ERROR = abs(POINT_DIFFERENTIAL - PredictedMean)
+  ) %>%
+  select(
+    YEAR,
+    CURRENT_ROUND = DayNum,
+    TEAM1 = TEAM1_NAME,
+    TEAM2 = TEAM2_NAME,
+    POINT_DIFFERENTIAL,
+    SPLIT,
+    PRED_MARGIN,
+    ABS_ERROR
+  )
+
+# build test predictions dataframe
+test_predictions <- test %>%
   left_join(teams %>% select(TeamID, TeamName) %>% rename(TEAM1_NAME = TeamName),
             by = c("TEAM1_ID" = "TeamID")) %>%
   left_join(teams %>% select(TeamID, TeamName) %>% rename(TEAM2_NAME = TeamName),
@@ -374,6 +400,7 @@ bayesian_predictions <- test %>%
     ABS_ERROR
   )
 
-# write to predictions folder
+# combine and write to predictions folder
+bayesian_predictions <- bind_rows(train_predictions, test_predictions)
 write.csv(bayesian_predictions, "Predictions/bayesian_predictions.csv", row.names = FALSE)
 ```
