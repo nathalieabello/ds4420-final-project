@@ -195,8 +195,8 @@ games_clean <- games %>%
 # train test split
 set.seed(1)
 
-train <- games_clean %>% filter(YEAR >= 2018 & YEAR <= 2022)
-test <- games_clean %>% filter(YEAR >= 2023 & YEAR <= 2025)
+train <- games_clean %>% filter(YEAR <= 2022)
+test <- games_clean %>% filter(YEAR <= 2025)
 ```
 
 ```{r}
@@ -346,7 +346,6 @@ ggplot(plot_data, aes(x = POINT_DIFFERENTIAL, y = .prediction)) +
   
   theme_bw()
 
-ggsave("bayesian_predictions.png", width = 7, height = 5, dpi = 300)
 ```
 
 ```{r}
