@@ -1,0 +1,5 @@
+# Core project + extra_credit scripts + Streamlit app
+numpy>=1.24
+pandas>=2.0
+streamlit>=1.28
+plotly>=5.18
