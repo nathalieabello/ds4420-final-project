@@ -5,6 +5,48 @@ date: "2026-04-04"
 output: pdf_document
 ---
 
+## Bayesian Linear Regression
+
+This notebook predicts tournament point differential using a Bayesian linear 
+regression model fit with brms. The model uses pairwise difference features 
+between Team 1 and Team 2 derived from regular season statistics, with 
+team-level random effects to account for residual team-specific variability.
+
+### Features
+
+For each statistic, features are computed as Team 1 minus Team 2, so each row 
+is a vector encoding relative strength between the two teams for that matchup:
+
+* SeedDiff: difference in tournament seed number
+* WinPctDiff: difference in regular season win percentage
+* ScoreDiffDiff: difference in average regular season point differential
+* OffDiff: difference in average points scored (offensive strength)
+* DefDiff: difference in average points allowed (defensive strength)
+* SeedDiff:WinPctDiff: interaction between seed and win percentage differences
+
+### Preprocessing
+
+* Train/test split by chronological year (2008–2022 train, 2023–2025 test) to 
+match the time series split.
+* Team assignments (Team 1 vs. Team 2) are randomized to remove any systematic 
+bias from winners always appearing on one side in the raw data.
+* All features are standardized using training data only, then the same 
+transform is applied to test years.
+
+### Model
+
+A Bayesian linear regression model with Gaussian likelihood:
+
+$$y_i \mid w, \sigma, x_i \sim \mathcal{N}(\mu_i = w^T x_i + u_{T1} + u_{T2}, \sigma^2)$$
+
+where $u_{T1}, u_{T2}$ are team-level random intercepts that account for 
+residual team-specific variability not captured by the observed features.
+
+
+### Priors
+
+$$w_j \sim \mathcal{N}(0, 1), \quad \alpha \sim \mathcal{N}(0, 5), \quad \sigma \sim \text{Exponential}(1), \quad u_j \sim \mathcal{N}(0, \tau^2)$$
+
 ```{r}
 # load libraries
 library(brms)
@@ -17,32 +59,28 @@ teams <- read.csv("Dataset/MTeams.csv")
 regular <- read.csv("Dataset/MRegularSeasonCompactResults.csv")
 tourney <- read.csv("Dataset/MNCAATourneyCompactResults.csv")
 seeds <- read.csv("Dataset/MNCAATourneySeeds.csv")
-point_diff <- read.csv("Dataset/Tournament Game Point Differentials.csv")
 
-# ensure IDs are numeric (important for joins)
+# ensure IDs are numeric
 regular$WTeamID <- as.numeric(regular$WTeamID)
 regular$LTeamID <- as.numeric(regular$LTeamID)
-point_diff$TEAM1_ID <- as.numeric(point_diff$TEAM1_ID)
-point_diff$TEAM2_ID <- as.numeric(point_diff$TEAM2_ID)
-seeds$TeamID <- as.numeric(seeds$TeamID)
 
+seeds$TeamID <- as.numeric(seeds$TeamID)
 
 head(teams)
 head(regular)
 head(tourney)
 head(seeds)
-head(point_diff)
 ```
 
 ```{r}
 # build team statistics
-# Score differential
+# score differential
 regular <- regular %>%
   mutate(ScoreDiff = WScore - LScore)
 
 team_stats <- bind_rows(
 
-  # Wins
+  # wins
   regular %>%
     group_by(Season, TeamID = WTeamID) %>%
     summarise(
@@ -54,7 +92,7 @@ team_stats <- bind_rows(
       .groups = "drop"
     ),
 
-  # Losses
+  # losses
   regular %>%
     group_by(Season, TeamID = LTeamID) %>%
     summarise(
@@ -94,9 +132,9 @@ games <- tourney %>%
     YEAR = Season
   )
 
-# randomize team order
 set.seed(1)
 
+# randomize team order to remove winner bias
 games <- games %>%
   mutate(random_flip = sample(c(TRUE, FALSE), n(), replace = TRUE)) %>%
   mutate(
@@ -151,29 +189,38 @@ games <- games %>%
 # feature engineering
 games <- games %>%
   mutate(
-    # Handle small NA cases safely
-    OffStrength_T1 = ifelse(is.na(OffStrength_T1), median(OffStrength_T1, na.rm = TRUE), OffStrength_T1),
-    OffStrength_T2 = ifelse(is.na(OffStrength_T2), median(OffStrength_T2, na.rm = TRUE), OffStrength_T2),
-    DefStrength_T1 = ifelse(is.na(DefStrength_T1), median(DefStrength_T1, na.rm = TRUE), DefStrength_T1),
-    DefStrength_T2 = ifelse(is.na(DefStrength_T2), median(DefStrength_T2, na.rm = TRUE), DefStrength_T2),
+    # handle small NA cases safely
+    OffStrength_T1 = ifelse(is.na(OffStrength_T1), 
+                            median(OffStrength_T1, na.rm = TRUE), 
+                            OffStrength_T1),
+    OffStrength_T2 = ifelse(is.na(OffStrength_T2), 
+                            median(OffStrength_T2, na.rm = TRUE), 
+                            OffStrength_T2),
+    DefStrength_T1 = ifelse(is.na(DefStrength_T1), 
+                            median(DefStrength_T1, na.rm = TRUE), 
+                            DefStrength_T1),
+    DefStrength_T2 = ifelse(is.na(DefStrength_T2), 
+                            median(DefStrength_T2, na.rm = TRUE), 
+                            DefStrength_T2),
 
-    # Core features
+    # core features
     SeedDiff = Seed_T1 - Seed_T2,
     WinPctDiff = WinPct_T1 - WinPct_T2,
     ScoreDiffDiff = ScoreDiff_T1 - ScoreDiff_T2,
     OffDiff = OffStrength_T1 - OffStrength_T2,
     DefDiff = DefStrength_T1 - DefStrength_T2,
 
-    # Interaction
+    # interaction
     Seed_Win_Interaction = SeedDiff * WinPctDiff,
 
-    # Round factor (important)
+    # round factor
     Round = as.factor(DayNum)
   )
 ```
 
 ```{r}
-# clean dataset
+# scale features using training data statistics only to prevent data leakage 
+# into the test set
 games_clean <- games %>%
   filter(
     !is.na(POINT_DIFFERENTIAL),
@@ -200,11 +247,7 @@ test <- games_clean %>% filter(YEAR >= 2023 & YEAR <= 2025)
 ```
 
 ```{r}
-nrow(games_clean)
-```
-
-### Bayesian Model
-```{r}
+# bayesian model
 model <- brm(
   POINT_DIFFERENTIAL ~ 
     SeedDiff + 
@@ -225,32 +268,14 @@ model <- brm(
   ),
   chains = 4,
   iter = 4000,
-  control = list(adapt_delta = 0.99)
+  control = list(adapt_delta = 0.99)  # reduces divergent transitions
+                                      # at the cost of slower sampling
 )
 ```
 
 ```{r}
-# evaluation
-pred <- predict(model, newdata = test, allow_new_levels = TRUE)
-
-test$PredictedDiff <- pred[,1]
-
-accuracy <- mean(
-  (test$PredictedDiff > 0) ==
-  (test$POINT_DIFFERENTIAL > 0)
-)
-
-rmse <- sqrt(mean((test$POINT_DIFFERENTIAL - test$PredictedDiff)^2))
-
-accuracy
-rmse
-
-mae <- mean(abs(test$POINT_DIFFERENTIAL - test$PredictedDiff))
-mae
-```
-```{r}
-# evaluation
-pred <- predict(model, newdata = train, allow_new_levels = TRUE)
+# evaluation for train data
+pred <- predict(model, newdata = train)
 
 train$PredictedDiff <- pred[,1]
 
@@ -261,15 +286,16 @@ accuracy <- mean(
 
 rmse <- sqrt(mean((train$POINT_DIFFERENTIAL - train$PredictedDiff)^2))
 
-accuracy
-rmse
+cat("train accuracy: ", accuracy, "\n")
+cat("train RMSE: ", rmse, "\n")
 
 mae <- mean(abs(train$POINT_DIFFERENTIAL - train$PredictedDiff))
-mae
+cat("train MAE: ", mae, "\n")
 ```
 
 ```{r}
 # mean predictions 
+# allow_new_levels = TRUE handles teams in test set not seen during training
 pred <- predict(model, newdata = test, allow_new_levels = TRUE)
 test$PredictedDiff <- pred[,1]
 
@@ -298,15 +324,14 @@ mae <- mean(abs(test$POINT_DIFFERENTIAL - test$PredictedDiff))
 avg_uncertainty <- mean(test$PredictedSD)
 
 # print results
-accuracy
-rmse
-mae
-avg_uncertainty
+cat("test accuracy: ", accuracy, "\n")
+cat("test RMSE: ", rmse, "\n")
+cat("test MAE: ", mae, "\n")
+cat("test avgerage uncertainty: ", avg_uncertainty, "\n")
 ```
-```{r}
-# plots / tables
-pp_check(model)
 
+```{r}
+pp_check(model)
 ```
 
 ```{r}
