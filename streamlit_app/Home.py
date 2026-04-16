@@ -72,6 +72,6 @@ st.markdown(
     - [Supplementary ratings (e.g. T-Rank / BartTorvik ecosystem)](https://adamcwisports.blogspot.com/p/data.html)
     - [NCAA-style competition data (e.g. Machine Learning Mania)](https://www.kaggle.com/competitions/march-machine-learning-mania-2026/data)
 
-    Full citations and narrative live in the course report and repo `README.md`.
+    Full citations and results live in the final report and repo `README.md`.
     """
 )
