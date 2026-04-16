@@ -25,8 +25,8 @@ st.markdown(
         margin-bottom: 1.5rem;
         border-left: 5px solid #D2691E;
     }
-    .hero h1 { margin: 0; font-size: 1.75rem; }
-    .hero p { margin: 0.5rem 0 0 0; opacity: 0.92; font-size: 1rem; }
+    .hero h1 { margin: 0; font-size: 1.75rem; color: #FAF8F5; }
+    .hero p { margin: 0.5rem 0 0 0; opacity: 0.92; font-size: 1rem; color: #FAF8F5; }
     </style>
     <div class="hero">
         <h1>March Madness: Predicting Point Margins</h1>
@@ -45,20 +45,22 @@ st.markdown("---")
 st.markdown("### What this project does")
 st.markdown(
     """
-    March Madness is hard to forecast: upsets and tight games are the norm, but fans still want
-    credible estimates of **how much** a team might win or lose by, not only who advances.
+    March Madness is one of the hardest sporting events to predict: upsets are common,
+    games are close, and the bracket is unforgiving. Most prediction models focus on
+    picking winners, but we wanted to go further: **by how much will a team win or lose?**
 
-    In this project, we predict **tournament point differential from Team 1's perspective**, using:
+    Using tournament game data from 2008-2025, we built and compared three machine learning
+    approaches alongside a simple baseline, each taking a different angle on the same question:
 
-    - **Baseline** -- season-average point-differential differences between teams
-    - **Time series** -- momentum / hot-or-cold team dynamics from past margins
-    - **Multi-layer perceptron (MLP)** -- KenPom / BartTorvik-style matchup features and a small neural net
-    - **Bayesian** -- uncertainty-aware updating of team strength
+    - **Baseline** - predicts margins using the difference in each team's regular-season average point differential
+    - **Time Series** - captures team momentum by modeling legacy strength and recent form using Auto-ARIMA
+    - **Multi-Layer Perceptron (MLP)** - a manually implemented neural network trained on opponent-adjusted efficiency metrics
+    - **Bayesian Linear Regression** - a probabilistic model that predicts margins while quantifying uncertainty in each prediction
 
-    This app highlights the **MLP, our strongest-performing model**. You can explore its
-    **historical tournament predictions** across train/test seasons, and also see how the same
-    model performs on **2026 March Madness matchups** by comparing its predicted margins with
-    the results we observed.
+    The MLP was our best-performing model, achieving a test MAE of 9.10 points and correctly
+    identifying the winner in roughly 3 out of every 4 games. This app lets you explore its
+    predictions on historical tournament matchups from 2008-2025, as well as see how it held
+    up on the 2026 March Madness bracket.
     """
 )
 
